@@ -21,6 +21,7 @@ services:
       - "8000:8000"
     volumes:
       - ./uploads:/app/uploads
+      - ./:/app/
     depends_on:
       - db
     env_file:

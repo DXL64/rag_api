@@ -2,8 +2,15 @@ import os
 import hashlib
 import aiofiles
 import aiofiles.os
-from typing import Iterable, List
+import sys
+from typing import Iterable, List, Optional
 from shutil import copyfileobj
+
+from pymongo import MongoClient
+from payos import PaymentData, ItemData, PayOS
+
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
 
 import uvicorn
 from langchain.schema import Document
@@ -72,6 +79,19 @@ from config import (
     VECTOR_DB_TYPE,
 )
 
+# MONGODB
+client = MongoClient(os.getenv("ATLAS_MONGO_DB_URI"))
+db = client['test']
+
+transactions = db['transactions']
+users = db['users']
+balances = db['balances']
+payments = db['payments']
+
+#PAYOS
+payOS = PayOS(client_id=os.getenv("PAYOS_CLIENT_ID"), 
+              api_key=os.getenv("PAYOS_API_KEY"), 
+              checksum_key=os.getenv("PAYOS_CHECKSUM_KEY")) 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -122,10 +142,309 @@ def isHealthOK():
         return mongo_health_check()
     else:
         return True
+    
+@app.post("/add-balance")
+async def add_balance(email, amount: int):
+    amount = int(amount)
 
+    # Validate the email
+    if '@' not in email:
+        return {"Error": "Invalid email address!"}
+    
+    if amount == 0:
+        return {f"Error": "Invalid amount {amount}!"}
 
+    # Validate the user
+    user = users.find_one({"email": email})
+    if not user:
+        return {"Error": "No user with that email was found!"}
+
+    # Create transaction and update balance
+    try:
+        result = transactions.insert_one({
+            "user": user["_id"],
+            "tokenType": "credits",
+            "context": "admin",
+            "rawAmount": amount,
+            "tokenValue": amount,
+            "rate": 1,
+            "ggRate": 1,
+            "ggTokenValue": amount * 0.075,
+            "createAt": datetime.now(),
+            "updateAt": datetime.now()
+        })
+    except Exception as e:
+        return {"Error": str(e)}
+
+    # Check the result
+    if not result:
+        return {"Error": "Something went wrong while updating the balance!"}
+    
+    balance = balances.find_one_and_update(
+        {"user": user["_id"]},
+        {"$inc": {"tokenCredits": amount, "ggTokenCredits": amount * 0.075}
+                  ,'$set': { "__v" : 0}},
+        upsert=True,
+        new=True
+    )
+
+    return {
+        "message": "Transaction created successfully!",
+        "amount": amount,
+        "new_balance": balance["tokenCredits"]
+    }
+
+@app.post("/subscribe")
+async def subscribe(
+    userId: Optional[str] = None, 
+    email: Optional[str] = None, 
+    plan: int = None, 
+    duration: int = None, 
+    amount: int = None, 
+    monthlyTokenCredits: int = None,
+    context: str = None,
+    affectNow: bool = False
+):
+    # Plan:
+    # 0 - Community
+    # 1 - Standard
+    # 2 - Advanced
+    # 3 - Ultimate
+
+    if userId == None and email == None:
+        return {"userId and email not found"}
+    
+    # Validate the email
+    if '@' not in email:
+        return {"Error": "Invalid email address!"}
+    
+    if amount < 0:
+        return {f"Error": "Invalid amount {amount}!"}
+    
+    if duration < 0:
+        return {f"Error": "Invalid duration {duration}!"}
+    
+    if monthlyTokenCredits < 0:
+        return {f"Error": "Invalid monthlyTokenCredits {monthlyTokenCredits}!"}
+    
+    context_arr = ["subscribe" , "renew" , "upgrade" , "downgrade"]
+    if context not in context_arr:
+        return {f"Error": "Invalid context {context}!"}
+    
+    user = None
+    if userId != None:
+        # Validate the user
+        user = users.find_one({"user": userId})
+        if not user:
+            return {"Error": "No user with that userId was found!"}
+        elif email != None:
+            user = users.find_one({"email": email})
+            if not user:
+                return {"Error": "No user with that email was found!"}
+    elif email != None:
+            user = users.find_one({"email": email})
+            if not user:
+                return {"Error": "No user with that email was found!"}
+            
+    # Check if not using free plan
+    if plan != 0:
+        # Create transaction and update balance
+        try:
+            result = payments.insert_one({
+                "user": user["_id"],
+                "context": context,
+                "monthlyTokenCredits": monthlyTokenCredits,
+                "remainMonthlyTokenCredits": monthlyTokenCredits,
+                "amount": amount,
+                "plan": plan,
+                "handled": affectNow,
+                "createAt": datetime.now(),
+            })
+        except Exception as e:
+            return {"Error": str(e)}
+
+        # Check the result
+        if not result:
+            return {result}
+    
+    update_fields = {
+        "__v": 0,
+    }
+    inc_fields = {}
+
+    tmp = balances.find_one({"user": user["_id"]})
+    if tmp == None:
+        remain_monthly_token_credits = 0
+    else:    
+        remain_monthly_token_credits = tmp.get('remainMonthlyTokenCredits', None)
+
+    print("remain_monthly_token_credits", remain_monthly_token_credits)
+
+    if affectNow == 0:
+        return {"Info": "Update the transaction later!"}
+    
+    if context == "upgrade" or context == "downgrade":
+        update_fields = {
+            "__v": 0,
+            "plan": plan,
+            "monthlyTokenCredits": monthlyTokenCredits,
+            "remainMonthlyTokenCredits": monthlyTokenCredits,
+            "expiredAt": datetime.today() + relativedelta(months=duration)
+        }
+        inc_fields = {
+            "tokenCredits": remain_monthly_token_credits
+        }
+    elif context == "subscribe":
+        if plan == 0:
+            update_fields = {
+                "__v": 0,
+                "plan": plan,
+                "monthlyTokenCredits": remain_monthly_token_credits,
+                "remainMonthlyTokenCredits": remain_monthly_token_credits,
+                "expiredAt": datetime.today() + relativedelta(months=duration)
+            }
+            inc_fields = {
+                "tokenCredits": monthlyTokenCredits
+            }
+        else:
+            update_fields = {
+                "__v": 0,
+                "plan": plan,
+                "monthlyTokenCredits": monthlyTokenCredits,
+                "remainMonthlyTokenCredits": monthlyTokenCredits,
+                "expiredAt": datetime.today() + relativedelta(months=duration)
+            }
+            inc_fields = {
+                "tokenCredits": 0
+            }
+    else:
+        update_fields = {
+            "__v": 0,
+            "monthlyTokenCredits": monthlyTokenCredits,
+            "remainMonthlyTokenCredits": monthlyTokenCredits,
+            "expiredAt": datetime.today() + relativedelta(months=duration)
+        }
+        inc_fields = {
+            "tokenCredits": remain_monthly_token_credits
+        }
+
+    balance = balances.find_one_and_update(
+        {"user": user["_id"]},
+        {"$inc": inc_fields,
+         "$set": update_fields},
+        upsert=True,
+        new=True
+    )
+
+    return {
+        "message": "Transaction created successfully!",
+        "user": user["email"],
+        "amount": amount,
+        "tokenCredits": balance["tokenCredits"],
+        "monthlyTokenCredits": balance["monthlyTokenCredits"],
+    }
+
+@app.post("/buy-credits")
+async def buy_credits(
+    userId: Optional[str] = None, 
+    email: Optional[str] = None, 
+    amount: int = None, 
+    tokenCredits: int = None,
+):
+    if userId == None and email == None:
+        return {"userId and email not found"}
+    
+    # Validate the email
+    if '@' not in email:
+        return {"Error": "Invalid email address!"}
+    
+    if amount < 0:
+        return {f"Error": "Invalid amount {amount}!"}
+    
+    if tokenCredits < 0:
+        return {f"Error": "Invalid monthlyTokenCredits {tokenCredits}!"}
+    
+    user = None
+    if userId != None:
+        # Validate the user
+        user = users.find_one({"user": userId})
+        if not user:
+            return {"Error": "No user with that userId was found!"}
+        elif email != None:
+            user = users.find_one({"email": email})
+            if not user:
+                return {"Error": "No user with that email was found!"}
+    elif email != None:
+            user = users.find_one({"email": email})
+            if not user:
+                return {"Error": "No user with that email was found!"}
+            
+    # Create transaction and update balance
+    try:
+        result = payments.insert_one({
+            "user": user["_id"],
+            "context": "buy credits",
+            "monthlyTokenCredits": tokenCredits,
+            "remainMonthlyTokenCredits": tokenCredits,
+            "amount": amount,
+            "handled": True,
+            "createAt": datetime.now(),
+        })
+    except Exception as e:
+        return {"Error": str(e)}
+
+    # Check the result
+    if not result:
+        return {result}
+    
+    inc_fields = {
+        "tokenCredits": tokenCredits
+    }
+
+    balance = balances.find_one_and_update(
+        {"user": user["_id"]},
+        {"$inc": inc_fields},
+        upsert=True,
+        new=True
+    )
+
+    return {
+        "message": "Transaction created successfully!",
+        "user": user["email"],
+        "amount": amount,
+        "tokenCredits": balance["tokenCredits"],
+        "monthlyTokenCredits": balance["monthlyTokenCredits"],
+    }
+
+@app.post("/create-payment-link")
+async def create_payment_link(orderCode: int, 
+                              plan: int, 
+                              duration: int, 
+                              amount: int,
+                              cancelUrl: str,
+                              returnUrl: str):
+    planName = ["Community", "Standard", "Advanced", "Ultimate"]
+    item = ItemData(name = planName[plan], quantity=duration, price=amount)
+    try:
+        print("CHECK")
+        print(amount)
+        print(f"{planName[plan]} - {duration}M")
+        paymentData = PaymentData(orderCode=orderCode, 
+                                amount=amount, 
+                                description= f"{planName[plan]} - {duration}M",
+                                items=[item], 
+                                cancelUrl= cancelUrl, 
+                                returnUrl= returnUrl)
+        
+        payosCreateResponse = payOS.createPaymentLink(paymentData)
+        print("payosCreateResponse: ", payosCreateResponse)
+        return { str(payosCreateResponse.to_json()) }
+    except Exception as e:
+        print(e)
+        return { str(e) }
+    
 @app.get("/health")
-async def health_check():
+async def health_check():   
     if await isHealthOK():
         return {"status": "UP"}
     else:
