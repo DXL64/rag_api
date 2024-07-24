@@ -641,14 +641,19 @@ async def create_payment_link(userId: Optional[str] = None,
             }
 
 @app.post("/receive-webhook")
-async def webhook(request = None):
-    try:
-        data = request.data
-        data = payOS.verifyPaymentWebhookData(data)
+async def webhook(request:Request):
+    webhookBody = await request.json()
 
-        orderCode = data["orderCode"]
+    try:
+        webhookData = payOS.verifyPaymentWebhookData(webhookBody)
+        
+        webhookData = webhookData.to_json()
+
+        orderCode = webhookData["orderCode"]
+
+        print(webhookBody["success"])
         status = "cancel"
-        if data["success"] == True:
+        if webhookBody["success"] == True:
            status = "success"
         
         payments.find_one_and_update(
