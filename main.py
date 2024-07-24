@@ -512,23 +512,7 @@ async def buy_credits(
                 "status": 400,
                 "data": {"message": "No user with that email was found!"}
             }
-            
-    # Create transaction and update balance
-    try:
-        result = payments.insert_one({
-            "user": user["_id"],
-            "context": "buy_credits",
-            "monthlyTokenCredits": tokenCredits,
-            "remainMonthlyTokenCredits": tokenCredits,
-            "amount": amount,
-            "handled": True,
-            "createAt": datetime.now(),
-        })
-    except Exception as e:
-            return {"status": 400,
-                    "data": {"message": str(e)}
-                }
-    
+
     inc_fields = {
         "tokenCredits": tokenCredits
     }
@@ -598,33 +582,51 @@ async def create_payment_link(userId: Optional[str] = None,
                 "data": {"message": "No user with that email was found!"}
             }
 
-    if plan < 0 or plan > 3:
+    if plan < 0 or plan > 4:
         return {
                 "status": 400,
-                "data": {"message": "Plan must be in range [0, 3]!"}
+                "data": {"message": "Plan must be in range [0, 4]!"}
             }
-    planName = ["Community", "Standard", "Advanced", "Ultimate"]
+    planName = ["Community", "Standard", "Advanced", "Ultimate", "Buy Credits"]
     item = ItemData(name = planName[plan], quantity=duration, price=amount)
     try:
-        paymentData = PaymentData(orderCode=orderCode, 
+        if plan < 4:
+            paymentData = PaymentData(orderCode=orderCode, 
                                 amount=amount, 
                                 description= f"{planName[plan]} - {duration}M",
                                 items=[item], 
                                 cancelUrl= cancelUrl, 
                                 returnUrl= returnUrl)
-        
+        else:
+            paymentData = PaymentData(orderCode=orderCode, 
+                                amount=amount, 
+                                description= f"{planName[plan]} - {duration}",
+                                items=[item], 
+                                cancelUrl= cancelUrl, 
+                                returnUrl= returnUrl)
         payosCreateResponse = payOS.createPaymentLink(paymentData)
         
         try:
-            payments.insert_one({
-                "user": user["_id"],
-                "orderCode": orderCode,
-                "amount": amount,
-                "plan": plan,
-                "duration": duration,
-                "status": "pending",
-                "createAt": datetime.now(),
-            })
+            if plan < 4:
+                payments.insert_one({
+                    "user": user["_id"],
+                    "orderCode": orderCode,
+                    "amount": amount,
+                    "plan": plan,
+                    "duration": duration,
+                    "status": "pending",
+                    "createAt": datetime.now(),
+                })
+            else:
+                payments.insert_one({
+                    "user": user["_id"],
+                    "orderCode": orderCode,
+                    "amount": amount,
+                    "plan": plan,
+                    "tokenCredits": duration,
+                    "status": "pending",
+                    "createAt": datetime.now(),
+                })
         except Exception as e:
             return {"status": 400,
                     "data": {"message": str(e)}
@@ -637,6 +639,34 @@ async def create_payment_link(userId: Optional[str] = None,
         return {"status": 400,
                 "data": {"message": str(e)}
             }
+
+@app.post("/receive-webhook")
+async def webhook(request = None):
+    try:
+        data = request.data
+        data = payOS.verifyPaymentWebhookData(data)
+
+        orderCode = data["orderCode"]
+        status = "cancel"
+        if data["success"] == True:
+           status = "success"
+        
+        payments.find_one_and_update(
+            {"orderCode": orderCode},
+            {'$set': { "status" : status}},
+            upsert=True,
+            new=True
+        )
+
+        return {
+            "status": 200,
+            "data": {"message": f"Payment with orderCode: {orderCode} done!"}
+        }
+    except Exception as e:
+        return {   
+                "status": 400,
+                "data": {"message": str(e)}
+               }
     
 @app.get("/health")
 async def health_check():   
