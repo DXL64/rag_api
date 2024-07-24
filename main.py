@@ -551,12 +551,58 @@ async def buy_credits(
     }
 
 @app.post("/create-payment-link")
-async def create_payment_link(orderCode: int, 
-                              plan: int, 
-                              duration: int, 
-                              amount: int,
-                              cancelUrl: str,
-                              returnUrl: str):
+async def create_payment_link(userId: Optional[str] = None, 
+                              email: Optional[str] = None,
+                              orderCode: int = None, 
+                              plan: int = None, 
+                              duration: int = None, 
+                              amount: int = None,
+                              cancelUrl: str = None,
+                              returnUrl: str = None):
+    if userId is None and email is None:
+        return {
+            "status": 400,
+            "data": {"message": "userId and email not found"}
+        }
+    
+    # Validate the email format
+    if email and '@' not in email:
+        return {
+            "status": 400,
+            "data": {"message": "Invalid email address!"}
+        }
+    
+    user = None
+    if userId is not None:
+        # Validate the user by userId
+        user = users.find_one({"user": userId})
+        if not user:
+            return {
+                "status": 400,
+                "data": {"message": "No user with that userId was found!"}
+            }
+        elif email is not None:
+            # Validate the user by email as well
+            user = users.find_one({"email": email})
+            if not user:
+                return {
+                    "status": 400,
+                    "data": {"message": "No user with that email was found!"}
+                }
+    elif email is not None:
+        # If only email is provided, validate the user by email
+        user = users.find_one({"email": email})
+        if not user:
+            return {
+                "status": 400,
+                "data": {"message": "No user with that email was found!"}
+            }
+
+    if plan < 0 or plan > 3:
+        return {
+                "status": 400,
+                "data": {"message": "Plan must be in range [0, 3]!"}
+            }
     planName = ["Community", "Standard", "Advanced", "Ultimate"]
     item = ItemData(name = planName[plan], quantity=duration, price=amount)
     try:
@@ -568,11 +614,29 @@ async def create_payment_link(orderCode: int,
                                 returnUrl= returnUrl)
         
         payosCreateResponse = payOS.createPaymentLink(paymentData)
-        print("payosCreateResponse: ", payosCreateResponse)
-        return { str(payosCreateResponse.to_json()) }
+        
+        try:
+            payments.insert_one({
+                "user": user["_id"],
+                "orderCode": orderCode,
+                "amount": amount,
+                "plan": plan,
+                "duration": duration,
+                "status": "pending",
+                "createAt": datetime.now(),
+            })
+        except Exception as e:
+            return {"status": 400,
+                    "data": {"message": str(e)}
+                }
+
+        return {"status": 200,
+                "data": {json.dumps(payosCreateResponse.to_json())}
+            }
     except Exception as e:
-        print(e)
-        return { str(e) }
+        return {"status": 400,
+                "data": {"message": str(e)}
+            }
     
 @app.get("/health")
 async def health_check():   
