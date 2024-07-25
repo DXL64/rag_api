@@ -384,6 +384,23 @@ async def subscribe(
     
     # Handle buy credits
     if plan == 4:
+        try:
+            update_fields = {
+                "tokenCredits": payment["tokenCredits"],
+                "handled": affectNow,
+                "status": "success",
+                "createAt": datetime.now(),
+            }
+
+            result = payments.update_one(
+                {"orderCode": orderCode},
+                {"$set": update_fields},
+            )
+        except Exception as e:
+            return {"status": 400,
+                    "data": {"message": str(e)}
+                }
+        
         inc_fields = {
             "tokenCredits": payment["tokenCredits"]
         }
