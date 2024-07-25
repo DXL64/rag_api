@@ -353,7 +353,7 @@ async def subscribe(
                 "data": {"message": "Transaction update later!"}
             }
     
-    if(payment["status"] == "success"):
+    if(payment["handled"] == True):
         return {
                 "status": 200,
                 "data": {"message": "Transaction is already updated!"}
@@ -614,6 +614,7 @@ async def create_payment_link(userId: Optional[str] = None,
                     "amount": amount,
                     "plan": plan,
                     "duration": duration,
+                    "handled": False,
                     "status": "pending",
                     "createAt": datetime.now(),
                 })
@@ -624,6 +625,7 @@ async def create_payment_link(userId: Optional[str] = None,
                     "amount": amount,
                     "plan": plan,
                     "tokenCredits": duration,
+                    "handled": False,
                     "status": "pending",
                     "createAt": datetime.now(),
                 })
