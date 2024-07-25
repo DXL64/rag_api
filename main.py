@@ -379,6 +379,20 @@ async def subscribe(
                 "status": 200,
                 "data": {"message": "Transaction is already updated!"}
             }
+    
+    # Handle buy credits
+    if plan == 4:
+        inc_fields = {
+            "tokenCredits": payment["tokenCredits"]
+        }
+
+        balance = balances.find_one_and_update(
+            {"user": user["_id"]},
+            {"$inc": inc_fields},
+            upsert=True,
+            new=True
+        )
+        
     # Check if not using free plan
     if plan != 0:
         # Create transaction and update balance
@@ -396,7 +410,6 @@ async def subscribe(
                 {"orderCode": orderCode},
                 {"$set": update_fields},
             )
-            print(result)
         except Exception as e:
             return {"status": 400,
                     "data": {"message": str(e)}
