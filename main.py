@@ -89,7 +89,7 @@ users = db['users']
 balances = db['balances']
 payments = db['payments']
 
-monthlyTokenCreditsArr = [0, 1500000, 3500000, 5000000]
+monthlyTokenCreditsArr = [0, 1500000, 3500000, 5000000, 0]
 
 #PAYOS
 payOS = PayOS(client_id=os.getenv("PAYOS_CLIENT_ID"), 
@@ -293,7 +293,9 @@ async def subscribe(
             }
     
     plan:int = payment["plan"]
-    duration: int = payment["duration"] 
+    duration = 0
+    if plan < 4:
+        duration: int = payment["duration"] 
     amount: int = payment["amount"]
     monthlyTokenCredits: int = monthlyTokenCreditsArr[plan]
 
@@ -392,7 +394,7 @@ async def subscribe(
             upsert=True,
             new=True
         )
-        
+
     # Check if not using free plan
     if plan != 0:
         # Create transaction and update balance
