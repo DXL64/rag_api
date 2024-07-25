@@ -199,48 +199,69 @@ async def add_balance(email, amount: int):
 
 @app.get("/payment-history")
 async def get_payment_history(userId: Optional[str] = None, email: Optional[str] = None):
-    if userId == None and email == None:
+    if userId is None and email is None:
         return {
             "status": 400,
             "data": {"message": "userId and email not found"}
         }
     
-    # Validate the email
+    # Validate the email format
     if email and '@' not in email:
         return {
             "status": 400,
             "data": {"message": "Invalid email address!"}
         }
-    
     user = None
-    if userId != None:
-        # Validate the user
+    if userId is not None:
+        # Validate the user by userId
         user = users.find_one({"user": userId})
         if not user:
             return {
                 "status": 400,
                 "data": {"message": "No user with that userId was found!"}
             }
-        elif email != None:
+        elif email is not None:
+            # Validate the user by email as well
             user = users.find_one({"email": email})
             if not user:
                 return {
                     "status": 400,
                     "data": {"message": "No user with that email was found!"}
                 }
-    elif email != None:
-            user = users.find_one({"email": email})
-            if not user:
-                return {
+    elif email is not None:
+        # If only email is provided, validate the user by email
+        user = users.find_one({"email": email})
+        if not user:
+            return {
                 "status": 400,
                 "data": {"message": "No user with that email was found!"}
             }
             
-    payment_history = payments.find({"user": user["_id"]})
-    payment_arr = [payment for payment in payment_history]
+    payment_history = list(payments.find({"user": user["_id"]}).sort("createAt", -1).limit(20))
+    
+    try:
+        payment_info = payOS.getPaymentLinkInfomation(int(payment_history[0]["orderCode"]))
+        payment_info = payment_info.to_json()
+        status = "pending"
+        if(payment_info["status"] == "CANCELLED"):
+            status = "cancelled"
+        elif (payment_info["status"] == "PAID"):
+            status = "success"
+        update_fields = {
+            "status": status,
+        }
+        result = payments.update_one(
+            {"orderCode": payment_history[0]["orderCode"]},
+            {"$set": update_fields},
+        )
+        payment_history[0]["status"] = status
+    except Exception as e:
+        return {"status": 400,
+                "data": {"message": str(e)}
+            }
 
     return {"status": 200,
-            "data": json.dumps(payment_arr, default=str)}
+            "data": json.dumps(payment_history, default=str)}
 
 @app.get("/payment-info")
 async def get_payment_info(orderCode: int):
