@@ -395,6 +395,16 @@ async def subscribe(
             new=True
         )
 
+        return {
+        "status": 200,
+        "data": {"message": "Transaction created successfully!",
+                 "user": user["email"],
+                 "amount": amount,
+                 "tokenCredits": balance["tokenCredits"],
+                 "monthlyTokenCredits": balance["monthlyTokenCredits"]
+        }
+    }
+
     # Check if not using free plan
     if plan != 0:
         # Create transaction and update balance
