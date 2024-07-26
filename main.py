@@ -238,7 +238,12 @@ async def get_payment_history(userId: Optional[str] = None, email: Optional[str]
             }
             
     payment_history = list(payments.find({"user": user["_id"]}).sort("createAt", -1).limit(20))
-    
+    if len(payment_history) == 0:
+        return {
+            "status": 200,
+            "data": {}
+    }
+
     try:
         payment_info = payOS.getPaymentLinkInfomation(int(payment_history[0]["orderCode"]))
         payment_info = payment_info.to_json()
