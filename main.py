@@ -421,6 +421,7 @@ async def subscribe(
                  "monthlyTokenCredits": balance["monthlyTokenCredits"]
         }
     }
+    
 
     # Check if not using free plan
     if plan != 0:
@@ -660,13 +661,27 @@ async def create_payment_link(userId: Optional[str] = None,
                                 items=[item], 
                                 cancelUrl= cancelUrl, 
                                 returnUrl= returnUrl)
-        else:
+        elif plan == 5:
             paymentData = PaymentData(orderCode=orderCode, 
                                 amount=amount, 
                                 description= f"{planName[plan]} - {duration}",
                                 items=[item], 
                                 cancelUrl= cancelUrl, 
                                 returnUrl= returnUrl)
+        else:
+            payments.insert_one({
+                    "user": user["_id"],
+                    "orderCode": orderCode,
+                    "amount": amount,
+                    "plan": plan,
+                    "duration": duration,
+                    "handled": False,
+                    "status": "success",
+                    "createAt": datetime.now(),
+            })
+            return {"status": 200,
+                    "data": {"message": "community"}
+            }
         payosCreateResponse = payOS.createPaymentLink(paymentData)
         
         try:
