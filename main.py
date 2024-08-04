@@ -89,7 +89,7 @@ users = db['users']
 balances = db['balances']
 payments = db['payments']
 
-monthlyTokenCreditsArr = [0, 1500000, 3500000, 5000000, 0]
+monthlyTokenCreditsArr = [150000, 1500000, 3500000, 5000000, 0]
 
 #PAYOS
 payOS = PayOS(client_id=os.getenv("PAYOS_CLIENT_ID"), 
@@ -476,7 +476,7 @@ async def subscribe(
                 "__v": 0,
                 "plan": plan,
                 "monthlyTokenCredits": remain_monthly_token_credits,
-                "remainMonthlyTokenCredits": remain_monthly_token_credits,
+                "remainMonthlyTokenCredits": monthlyTokenCredits,
                 "expiredAt": datetime.today() + relativedelta(months=duration)
             }
             inc_fields = {
