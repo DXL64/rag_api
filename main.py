@@ -471,28 +471,16 @@ async def subscribe(
             "tokenCredits": remain_monthly_token_credits
         }
     elif context == "subscribe":
-        if plan == 0:
-            update_fields = {
-                "__v": 0,
-                "plan": plan,
-                "monthlyTokenCredits": remain_monthly_token_credits,
-                "remainMonthlyTokenCredits": monthlyTokenCredits,
-                "expiredAt": datetime.today() + relativedelta(months=duration)
-            }
-            inc_fields = {
-                "tokenCredits": monthlyTokenCredits
-            }
-        else:
-            update_fields = {
-                "__v": 0,
-                "plan": plan,
-                "monthlyTokenCredits": monthlyTokenCredits,
-                "remainMonthlyTokenCredits": monthlyTokenCredits,
-                "expiredAt": datetime.today() + relativedelta(months=duration)
-            }
-            inc_fields = {
-                "tokenCredits": 0
-            }
+        update_fields = {
+            "__v": 0,
+            "plan": plan,
+            "monthlyTokenCredits": monthlyTokenCredits,
+            "remainMonthlyTokenCredits": monthlyTokenCredits,
+            "expiredAt": datetime.today() + relativedelta(months=duration)
+        }
+        inc_fields = {
+            "tokenCredits": 0
+        }
     else:
         update_fields = {
             "__v": 0,
