@@ -261,9 +261,8 @@ async def get_payment_history(userId: Optional[str] = None, email: Optional[str]
         )
         payment_history[0]["status"] = status
     except Exception as e:
-        return {"status": 400,
-                "data": {"message": str(e)}
-            }
+        return {"status": 200,
+            "data": json.dumps(payment_history, default=str)}
 
     return {"status": 200,
             "data": json.dumps(payment_history, default=str)}
