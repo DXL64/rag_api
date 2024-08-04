@@ -238,7 +238,12 @@ async def get_payment_history(userId: Optional[str] = None, email: Optional[str]
             }
             
     payment_history = list(payments.find({"user": user["_id"]}).sort("createAt", -1).limit(20))
-    
+    if len(payment_history) == 0:
+        return {
+            "status": 200,
+            "data": {}
+    }
+
     try:
         payment_info = payOS.getPaymentLinkInfomation(int(payment_history[0]["orderCode"]))
         payment_info = payment_info.to_json()
@@ -423,8 +428,7 @@ async def subscribe(
     }
     
 
-    # Check if not using free plan
-    if plan != 0:
+    if plan != 4:
         # Create transaction and update balance
         try:
             update_fields = {
@@ -654,7 +658,21 @@ async def create_payment_link(userId: Optional[str] = None,
     planName = ["Community", "Standard", "Advanced", "Ultimate", "Buy Credits"]
     item = ItemData(name = planName[plan], quantity=duration, price=amount)
     try:
-        if plan < 4:
+        if plan == 0:
+            payments.insert_one({
+                    "user": user["_id"],
+                    "orderCode": orderCode,
+                    "amount": amount,
+                    "plan": plan,
+                    "duration": duration,
+                    "handled": False,
+                    "status": "success",
+                    "createAt": datetime.now(),
+                })
+            return {"status": 200,
+                "data": {"message": "community"}
+            }
+        elif plan < 4:
             paymentData = PaymentData(orderCode=orderCode, 
                                 amount=amount, 
                                 description= f"{planName[plan]} - {duration}M",
